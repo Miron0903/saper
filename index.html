@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Сапер - JSON ходы</title>
+    <title>Сапер - настраиваемое поле</title>
     <style>
         * { user-select: none; }
         body {
@@ -23,7 +23,6 @@
         }
         .board {
             display: inline-grid;
-            grid-template-columns: repeat(5, 70px);
             gap: 2px;
             background: #555;
             padding: 5px;
@@ -31,13 +30,13 @@
             margin: 20px;
         }
         .cell {
-            width: 70px;
-            height: 70px;
+            width: 60px;
+            height: 60px;
             background: #c0c0c0;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 24px;
+            font-size: 20px;
             font-weight: bold;
             cursor: pointer;
             border-radius: 5px;
@@ -62,6 +61,18 @@
         button.danger { background: #f44336; }
         button.danger:hover { background: #da190b; }
         button.primary { background: #2196F3; }
+        .settings {
+            background: #f0f0f0;
+            padding: 15px;
+            border-radius: 10px;
+            margin: 10px;
+        }
+        .settings input {
+            margin: 5px;
+            padding: 5px;
+            width: 60px;
+            text-align: center;
+        }
         textarea {
             width: 400px;
             height: 150px;
@@ -93,15 +104,22 @@
 <div class="container">
     <h1>🚩 Сапер с JSON ходами</h1>
     
-    <div>
-        <button onclick="window.location.reload()">🔄 Новая игра</button>
-        <button onclick="exportMoves()" class="primary">💾 Сохранить ходы (moves.json)</button>
-        <button onclick="processMoves()" class="primary">⚙️ Обработать ходы через Python</button>
-        <button onclick="clearMoves()" class="danger">🗑 Очистить ходы</button>
+    <div class="settings">
+        <h3>⚙️ Настройки поля</h3>
+        <label>Ширина: <input type="number" id="width" min="2" max="10" value="5"></label>
+        <label>Высота: <input type="number" id="height" min="2" max="10" value="5"></label>
+        <label>Количество бомб: <input type="number" id="mines" min="1" max="24" value="3"></label>
+        <button onclick="newGameWithSettings()" class="primary">🔄 Новая игра с этими настройками</button>
     </div>
 
     <div id="board" class="board"></div>
     <div id="status" class="status"></div>
+
+    <div>
+        <button onclick="exportMoves()" class="primary">💾 Сохранить ходы (moves.json)</button>
+        <button onclick="processMoves()" class="primary">⚙️ Обработать ходы через Python</button>
+        <button onclick="clearMoves()" class="danger">🗑 Очистить ходы</button>
+    </div>
 
     <div>
         <strong>📝 Твои ходы (нажимай на клетки):</strong>
@@ -116,20 +134,57 @@
     let moves = [];
     let gameActive = true;
     let winFlag = false;
+    let currentWidth = 5;
+    let currentHeight = 5;
 
     async function loadGame() {
         try {
             const response = await fetch('game.json?t=' + Date.now());
             const data = await response.json();
             table = data.table;
-            revealed = Array(data.height).fill().map(() => Array(data.width).fill(false));
+            currentWidth = data.width;
+            currentHeight = data.height;
+            revealed = Array(currentHeight).fill().map(() => Array(currentWidth).fill(false));
             gameActive = true;
             winFlag = false;
+            
+            // Обновляем сетку CSS
+            const boardDiv = document.getElementById('board');
+            boardDiv.style.gridTemplateColumns = `repeat(${currentWidth}, 60px)`;
+            
             renderBoard();
-            document.getElementById('status').innerHTML = '✅ Игра готова! Кликай на клетки';
+            document.getElementById('status').innerHTML = `✅ Игра готова! Поле ${currentWidth}x${currentHeight}`;
             document.getElementById('status').className = 'status';
         } catch(e) {
-            document.getElementById('status').innerHTML = '❌ Не удалось загрузить game.json. Убедись, что Python сервер запущен!';
+            document.getElementById('status').innerHTML = '❌ Не удалось загрузить game.json. Нажми "Новая игра"!';
+        }
+    }
+
+    async function newGameWithSettings() {
+        const width = parseInt(document.getElementById('width').value);
+        const height = parseInt(document.getElementById('height').value);
+        let mines = parseInt(document.getElementById('mines').value);
+        
+        // Проверка: бомб не может быть больше клеток
+        const maxMines = width * height - 1;
+        if (mines > maxMines) {
+            mines = maxMines;
+            document.getElementById('mines').value = maxMines;
+            alert(`Бомб не может быть больше ${maxMines}! Установлено ${maxMines}`);
+        }
+        
+        const response = await fetch('/new_game', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ width: width, height: height, mines: mines })
+        });
+        
+        if (response.ok) {
+            // Очищаем ходы
+            moves = [];
+            updateMovesDisplay();
+            // Загружаем новое поле
+            await loadGame();
         }
     }
 
@@ -138,11 +193,11 @@
         boardDiv.innerHTML = '';
         if (!table.length) return;
 
-        for (let y = 0; y < table.length; y++) {
-            for (let x = 0; x < table[0].length; x++) {
+        for (let y = 0; y < currentHeight; y++) {
+            for (let x = 0; x < currentWidth; x++) {
                 const cell = document.createElement('div');
                 cell.className = 'cell';
-                if (revealed[y][x]) {
+                if (revealed[y] && revealed[y][x]) {
                     cell.classList.add('revealed');
                     let content = table[y][x];
                     if (content === -1) content = '💣';
@@ -179,8 +234,8 @@
             renderBoard();
             
             let allSafe = true;
-            for (let yy = 0; yy < table.length; yy++) {
-                for (let xx = 0; xx < table[0].length; xx++) {
+            for (let yy = 0; yy < currentHeight; yy++) {
+                for (let xx = 0; xx < currentWidth; xx++) {
                     if (table[yy][xx] !== -1 && !revealed[yy][xx]) {
                         allSafe = false;
                         break;
@@ -244,6 +299,7 @@
         }
     }
 
+    // Загружаем игру при старте
     loadGame();
 </script>
 </body>

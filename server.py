@@ -4,16 +4,27 @@ import os
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 
 class SaperGame:
-    def __init__(self):
-        self.W, self.H, self.MINES = 5, 5, 3
+    def __init__(self, width=5, height=5, mines=3):
+        self.W = width
+        self.H = height
+        self.MINES = mines
         self.table = []
         self.revealed = []
         self.init_game()
     
     def init_game(self):
+        # Проверка, чтобы бомб не было больше чем клеток
+        max_mines = self.W * self.H - 1
+        if self.MINES > max_mines:
+            self.MINES = max_mines
+            print(f"⚠️ Бомб не может быть больше {max_mines}, установлено {self.MINES}")
+        
         # Создаём поле
         self.table = [[0]*self.W for _ in range(self.H)]
-        mines = random.sample([(x,y) for x in range(self.W) for y in range(self.H)], self.MINES)
+        
+        # Размещаем бомбы
+        all_cells = [(x,y) for x in range(self.W) for y in range(self.H)]
+        mines = random.sample(all_cells, self.MINES)
         for x,y in mines:
             self.table[y][x] = -1
         
@@ -32,7 +43,7 @@ class SaperGame:
         
         self.revealed = [[False]*self.W for _ in range(self.H)]
         self.save_game_json()
-        print("✅ Создано новое поле и сохранено в game.json")
+        print(f"✅ Создано поле {self.W}x{self.H} с {self.MINES} бомбами")
     
     def save_game_json(self):
         with open("game.json", "w", encoding="utf-8") as f:
@@ -40,7 +51,8 @@ class SaperGame:
                 "table": self.table,
                 "revealed": self.revealed,
                 "width": self.W,
-                "height": self.H
+                "height": self.H,
+                "mines": self.MINES
             }, f, indent=2)
     
     def process_moves(self, moves_file="moves.json"):
@@ -100,8 +112,8 @@ class SaperGame:
         
         return result
 
-# Создаём игру при запуске
-game = SaperGame()
+# Создаём игру с настройками по умолчанию
+game = SaperGame(5, 5, 3)
 
 # Кастомный обработчик для API
 class MyHandler(SimpleHTTPRequestHandler):
@@ -112,12 +124,23 @@ class MyHandler(SimpleHTTPRequestHandler):
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
             self.wfile.write(json.dumps(result).encode())
+        
         elif self.path == '/new_game':
-            game.init_game()
+            content_length = int(self.headers['Content-Length'])
+            post_data = self.rfile.read(content_length)
+            data = json.loads(post_data)
+            
+            width = data.get('width', 5)
+            height = data.get('height', 5)
+            mines = data.get('mines', 3)
+            
+            game.__init__(width, height, mines)
+            
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
-            self.wfile.write(json.dumps({"status": "ok"}).encode())
+            self.wfile.write(json.dumps({"status": "ok", "width": width, "height": height, "mines": mines}).encode())
+        
         else:
             self.send_response(404)
             self.end_headers()
@@ -131,16 +154,16 @@ class MyHandler(SimpleHTTPRequestHandler):
 if __name__ == '__main__':
     port = 8000
     print(f"""
-    ╔══════════════════════════════════════╗
-    ║   🚩 Сапер с JSON ходами запущен!    ║
-    ╠══════════════════════════════════════╣
-    ║  Открой в браузере:                  ║
-    ║  http://localhost:{port}              ║
-    ╠══════════════════════════════════════╣
-    ║  1. Нажимай на клетки                ║
-    ║  2. Сохрани ходы в moves.json        ║
-    ║  3. Нажми "Обработать ходы"          ║
-    ║  4. Смотри результат в result.json   ║
-    ╚══════════════════════════════════════╝
+    ╔══════════════════════════════════════════════════╗
+    ║      🚩 Сапер с JSON ходами (настраиваемый)      ║
+    ╠══════════════════════════════════════════════════╣
+    ║  Открой в браузере:                              ║
+    ║  http://localhost:{port}                          ║
+    ╠══════════════════════════════════════════════════╣
+    ║  Можно менять размер поля и количество бомб!     ║
+    ║  1. Выбери ширину, высоту и бомбы                ║
+    ║  2. Нажми "Новая игра"                           ║
+    ║  3. Кликай на клетки и сохраняй ходы             ║
+    ╚══════════════════════════════════════════════════╝
     """)
     HTTPServer(('localhost', port), MyHandler).serve_forever()
