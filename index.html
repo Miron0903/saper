@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Сапер - JSON ходы</title>
+    <style>
+        * { user-select: none; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            text-align: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            margin: 0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .board {
+            display: inline-grid;
+            grid-template-columns: repeat(5, 70px);
+            gap: 2px;
+            background: #555;
+            padding: 5px;
+            border-radius: 8px;
+            margin: 20px;
+        }
+        .cell {
+            width: 70px;
+            height: 70px;
+            background: #c0c0c0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            border-radius: 5px;
+            transition: 0.1s;
+        }
+        .cell.revealed {
+            background: #e8e8e8;
+        }
+        .cell:active { transform: scale(0.95); }
+        button {
+            margin: 10px;
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+            background: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            transition: 0.2s;
+        }
+        button:hover { background: #45a049; transform: translateY(-2px); }
+        button.danger { background: #f44336; }
+        button.danger:hover { background: #da190b; }
+        button.primary { background: #2196F3; }
+        textarea {
+            width: 400px;
+            height: 150px;
+            margin: 10px;
+            font-family: monospace;
+            font-size: 12px;
+            border-radius: 5px;
+        }
+        .status {
+            margin: 15px;
+            padding: 10px;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+        .win { background: #d4edda; color: #155724; }
+        .lose { background: #f8d7da; color: #721c24; }
+        .moves-list {
+            background: #f0f0f0;
+            padding: 10px;
+            border-radius: 8px;
+            margin: 10px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        h1 { margin: 0 0 20px 0; color: #333; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <h1>🚩 Сапер с JSON ходами</h1>
+    
+    <div>
+        <button onclick="window.location.reload()">🔄 Новая игра</button>
+        <button onclick="exportMoves()" class="primary">💾 Сохранить ходы (moves.json)</button>
+        <button onclick="processMoves()" class="primary">⚙️ Обработать ходы через Python</button>
+        <button onclick="clearMoves()" class="danger">🗑 Очистить ходы</button>
+    </div>
+
+    <div id="board" class="board"></div>
+    <div id="status" class="status"></div>
+
+    <div>
+        <strong>📝 Твои ходы (нажимай на клетки):</strong>
+        <div id="movesList" class="moves-list"></div>
+        <textarea id="movesJsonPreview" readonly placeholder="Здесь будет JSON с ходами..."></textarea>
+    </div>
+</div>
+
+<script>
+    let table = [];
+    let revealed = [];
+    let moves = [];
+    let gameActive = true;
+    let winFlag = false;
+
+    async function loadGame() {
+        try {
+            const response = await fetch('game.json?t=' + Date.now());
+            const data = await response.json();
+            table = data.table;
+            revealed = Array(data.height).fill().map(() => Array(data.width).fill(false));
+            gameActive = true;
+            winFlag = false;
+            renderBoard();
+            document.getElementById('status').innerHTML = '✅ Игра готова! Кликай на клетки';
+            document.getElementById('status').className = 'status';
+        } catch(e) {
+            document.getElementById('status').innerHTML = '❌ Не удалось загрузить game.json. Убедись, что Python сервер запущен!';
+        }
+    }
+
+    function renderBoard() {
+        const boardDiv = document.getElementById('board');
+        boardDiv.innerHTML = '';
+        if (!table.length) return;
+
+        for (let y = 0; y < table.length; y++) {
+            for (let x = 0; x < table[0].length; x++) {
+                const cell = document.createElement('div');
+                cell.className = 'cell';
+                if (revealed[y][x]) {
+                    cell.classList.add('revealed');
+                    let content = table[y][x];
+                    if (content === -1) content = '💣';
+                    else if (content === 0) content = '';
+                    else content = content;
+                    cell.textContent = content;
+                } else {
+                    cell.textContent = '?';
+                }
+                cell.addEventListener('click', () => onCellClick(x, y));
+                boardDiv.appendChild(cell);
+            }
+        }
+    }
+
+    function onCellClick(x, y) {
+        if (!gameActive || winFlag) return;
+        if (revealed[y][x]) {
+            alert('Клетка уже открыта');
+            return;
+        }
+        
+        moves.push([x, y]);
+        updateMovesDisplay();
+
+        if (table[y][x] === -1) {
+            revealed[y][x] = true;
+            renderBoard();
+            gameActive = false;
+            document.getElementById('status').innerHTML = '💥 МИНА! Игра окончена. Сохрани ходы и обработай.';
+            document.getElementById('status').className = 'status lose';
+        } else {
+            revealed[y][x] = true;
+            renderBoard();
+            
+            let allSafe = true;
+            for (let yy = 0; yy < table.length; yy++) {
+                for (let xx = 0; xx < table[0].length; xx++) {
+                    if (table[yy][xx] !== -1 && !revealed[yy][xx]) {
+                        allSafe = false;
+                        break;
+                    }
+                }
+            }
+            if (allSafe) {
+                winFlag = true;
+                gameActive = false;
+                document.getElementById('status').innerHTML = '🎉 ПОБЕДА! Сохрани ходы!';
+                document.getElementById('status').className = 'status win';
+            }
+        }
+    }
+
+    function updateMovesDisplay() {
+        const movesDiv = document.getElementById('movesList');
+        if (moves.length === 0) {
+            movesDiv.innerHTML = '<em>Нет ходов. Нажми на любую клетку!</em>';
+        } else {
+            movesDiv.innerHTML = moves.map((move, idx) => 
+                `<div>${idx+1}. (${move[0]}, ${move[1]})</div>`
+            ).join('');
+        }
+        const movesJson = { moves: moves };
+        document.getElementById('movesJsonPreview').value = JSON.stringify(movesJson, null, 2);
+    }
+
+    function exportMoves() {
+        const movesJson = { moves: moves };
+        const blob = new Blob([JSON.stringify(movesJson, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = 'moves.json';
+        a.click();
+        URL.revokeObjectURL(url);
+        alert('✅ moves.json сохранён! Теперь нажми "Обработать ходы через Python"');
+    }
+
+    async function processMoves() {
+        const response = await fetch('/process_moves', { method: 'POST' });
+        const result = await response.json();
+        
+        if (result.error) {
+            alert(result.error);
+        } else {
+            alert('Ходы обработаны! Смотри result.json');
+            console.log('Результат:', result);
+            let msg = result.results.join('\n');
+            if (result.won) msg += '\n\n🏆 ПОБЕДА!';
+            if (result.game_over) msg += '\n\n💀 ИГРА ОКОНЧЕНА';
+            alert(msg);
+        }
+    }
+
+    function clearMoves() {
+        if (confirm('Очистить все ходы?')) {
+            moves = [];
+            updateMovesDisplay();
+        }
+    }
+
+    loadGame();
+</script>
+</body>
+</html>
