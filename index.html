@@ -2,9 +2,11 @@
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
-    <title>Сапер - настраиваемое поле</title>
+    <title>Сапер - флажки правой кнопкой</title>
     <style>
-        * { user-select: none; }
+        * {
+            user-select: none;
+        }
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             text-align: center;
@@ -36,7 +38,7 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 20px;
+            font-size: 24px;
             font-weight: bold;
             cursor: pointer;
             border-radius: 5px;
@@ -45,7 +47,12 @@
         .cell.revealed {
             background: #e8e8e8;
         }
-        .cell:active { transform: scale(0.95); }
+        .cell.flag {
+            background: #ffecb3;
+        }
+        .cell:active {
+            transform: scale(0.95);
+        }
         button {
             margin: 10px;
             padding: 10px 20px;
@@ -57,10 +64,19 @@
             border-radius: 5px;
             transition: 0.2s;
         }
-        button:hover { background: #45a049; transform: translateY(-2px); }
-        button.danger { background: #f44336; }
-        button.danger:hover { background: #da190b; }
-        button.primary { background: #2196F3; }
+        button:hover {
+            background: #45a049;
+            transform: translateY(-2px);
+        }
+        button.danger {
+            background: #f44336;
+        }
+        button.danger:hover {
+            background: #da190b;
+        }
+        button.primary {
+            background: #2196F3;
+        }
         .settings {
             background: #f0f0f0;
             padding: 15px;
@@ -87,8 +103,14 @@
             border-radius: 8px;
             font-weight: bold;
         }
-        .win { background: #d4edda; color: #155724; }
-        .lose { background: #f8d7da; color: #721c24; }
+        .win {
+            background: #d4edda;
+            color: #155724;
+        }
+        .lose {
+            background: #f8d7da;
+            color: #721c24;
+        }
         .moves-list {
             background: #f0f0f0;
             padding: 10px;
@@ -97,19 +119,35 @@
             max-height: 200px;
             overflow-y: auto;
         }
-        h1 { margin: 0 0 20px 0; color: #333; }
+        h1 {
+            margin: 0 0 20px 0;
+            color: #333;
+        }
+        .info {
+            background: #e3f2fd;
+            padding: 10px;
+            border-radius: 8px;
+            margin: 10px;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
 <div class="container">
-    <h1>🚩 Сапер с JSON ходами</h1>
+    <h1>🚩 Сапер с флажками</h1>
+    
+    <div class="info">
+        🖱️ <strong>Левая кнопка мыши</strong> - открыть клетку<br>
+        🖱️ <strong>Правая кнопка мыши</strong> - поставить/снять флажок 🚩<br>
+        ⛔ <strong>Клетку с флажком нельзя открыть!</strong>
+    </div>
     
     <div class="settings">
         <h3>⚙️ Настройки поля</h3>
         <label>Ширина: <input type="number" id="width" min="2" max="10" value="5"></label>
         <label>Высота: <input type="number" id="height" min="2" max="10" value="5"></label>
         <label>Количество бомб: <input type="number" id="mines" min="1" max="24" value="3"></label>
-        <button onclick="newGameWithSettings()" class="primary">🔄 Новая игра с этими настройками</button>
+        <button onclick="newGameWithSettings()" class="primary">🔄 Новая игра</button>
     </div>
 
     <div id="board" class="board"></div>
@@ -122,7 +160,7 @@
     </div>
 
     <div>
-        <strong>📝 Твои ходы (нажимай на клетки):</strong>
+        <strong>📝 Список ходов (левая кнопка - открыть, правая - флаг):</strong>
         <div id="movesList" class="moves-list"></div>
         <textarea id="movesJsonPreview" readonly placeholder="Здесь будет JSON с ходами..."></textarea>
     </div>
@@ -131,6 +169,7 @@
 <script>
     let table = [];
     let revealed = [];
+    let flags = [];
     let moves = [];
     let gameActive = true;
     let winFlag = false;
@@ -142,13 +181,13 @@
             const response = await fetch('game.json?t=' + Date.now());
             const data = await response.json();
             table = data.table;
+            flags = data.flags || Array(data.height).fill().map(() => Array(data.width).fill(false));
+            revealed = data.revealed;
             currentWidth = data.width;
             currentHeight = data.height;
-            revealed = Array(currentHeight).fill().map(() => Array(currentWidth).fill(false));
-            gameActive = true;
+            gameActive = !data.revealed.some(row => row.some(cell => cell === true && table[row.indexOf(cell)][table.indexOf(row)] === -1));
             winFlag = false;
             
-            // Обновляем сетку CSS
             const boardDiv = document.getElementById('board');
             boardDiv.style.gridTemplateColumns = `repeat(${currentWidth}, 60px)`;
             
@@ -165,7 +204,6 @@
         const height = parseInt(document.getElementById('height').value);
         let mines = parseInt(document.getElementById('mines').value);
         
-        // Проверка: бомб не может быть больше клеток
         const maxMines = width * height - 1;
         if (mines > maxMines) {
             mines = maxMines;
@@ -180,10 +218,8 @@
         });
         
         if (response.ok) {
-            // Очищаем ходы
             moves = [];
             updateMovesDisplay();
-            // Загружаем новое поле
             await loadGame();
         }
     }
@@ -197,58 +233,111 @@
             for (let x = 0; x < currentWidth; x++) {
                 const cell = document.createElement('div');
                 cell.className = 'cell';
-                if (revealed[y] && revealed[y][x]) {
+                
+                if (revealed[y][x]) {
                     cell.classList.add('revealed');
                     let content = table[y][x];
                     if (content === -1) content = '💣';
                     else if (content === 0) content = '';
                     else content = content;
                     cell.textContent = content;
+                } else if (flags[y] && flags[y][x]) {
+                    cell.classList.add('flag');
+                    cell.textContent = '🚩';
                 } else {
                     cell.textContent = '?';
                 }
-                cell.addEventListener('click', () => onCellClick(x, y));
+                
+                // Левая кнопка - открыть
+                cell.addEventListener('click', (function(xx, yy) {
+                    return function(e) {
+                        e.preventDefault();
+                        onCellLeftClick(xx, yy);
+                    };
+                })(x, y));
+                
+                // Правая кнопка - флаг
+                cell.addEventListener('contextmenu', (function(xx, yy) {
+                    return function(e) {
+                        e.preventDefault();
+                        onCellRightClick(xx, yy);
+                        return false;
+                    };
+                })(x, y));
+                
                 boardDiv.appendChild(cell);
             }
         }
     }
 
-    function onCellClick(x, y) {
+    async function onCellLeftClick(x, y) {
         if (!gameActive || winFlag) return;
         if (revealed[y][x]) {
             alert('Клетка уже открыта');
             return;
         }
-        
-        moves.push([x, y]);
-        updateMovesDisplay();
-
-        if (table[y][x] === -1) {
-            revealed[y][x] = true;
-            renderBoard();
-            gameActive = false;
-            document.getElementById('status').innerHTML = '💥 МИНА! Игра окончена. Сохрани ходы и обработай.';
-            document.getElementById('status').className = 'status lose';
-        } else {
-            revealed[y][x] = true;
-            renderBoard();
-            
-            let allSafe = true;
-            for (let yy = 0; yy < currentHeight; yy++) {
-                for (let xx = 0; xx < currentWidth; xx++) {
-                    if (table[yy][xx] !== -1 && !revealed[yy][xx]) {
-                        allSafe = false;
-                        break;
-                    }
-                }
-            }
-            if (allSafe) {
-                winFlag = true;
-                gameActive = false;
-                document.getElementById('status').innerHTML = '🎉 ПОБЕДА! Сохрани ходы!';
-                document.getElementById('status').className = 'status win';
-            }
+        if (flags[y][x]) {
+            alert('⛔ На клетке стоит флажок! Снимите его правой кнопкой мыши.');
+            return;
         }
+        
+        // Добавляем ход
+        moves.push({ action: "reveal", x: x, y: y });
+        updateMovesDisplay();
+        
+        // Отправляем запрос на сервер
+        const response = await fetch('/reveal', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ x: x, y: y })
+        });
+        
+        const result = await response.json();
+        
+        if (result.game_over) {
+            gameActive = false;
+            await loadGame();
+            document.getElementById('status').innerHTML = '💥 МИНА! Игра окончена.';
+            document.getElementById('status').className = 'status lose';
+        } else if (result.won) {
+            winFlag = true;
+            gameActive = false;
+            await loadGame();
+            document.getElementById('status').innerHTML = '🎉 ПОБЕДА!';
+            document.getElementById('status').className = 'status win';
+        } else {
+            await loadGame();
+        }
+    }
+
+    async function onCellRightClick(x, y) {
+        if (!gameActive || winFlag) return;
+        if (revealed[y][x]) {
+            alert('Нельзя поставить флаг на открытую клетку!');
+            return;
+        }
+        
+        // Добавляем ход
+        moves.push({ action: "flag", x: x, y: y });
+        updateMovesDisplay();
+        
+        // Отправляем запрос на сервер
+        const response = await fetch('/toggle_flag', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ x: x, y: y })
+        });
+        
+        await loadGame();
+        
+        const result = await response.json();
+        const flagStatus = result.flag_set ? '🚩 Флаг поставлен' : '🚩 Флаг снят';
+        document.getElementById('status').innerHTML = `${flagStatus} на клетке (${x},${y})`;
+        setTimeout(() => {
+            if (!winFlag && gameActive) {
+                document.getElementById('status').innerHTML = `✅ Игра продолжается`;
+            }
+        }, 1000);
     }
 
     function updateMovesDisplay() {
@@ -256,9 +345,10 @@
         if (moves.length === 0) {
             movesDiv.innerHTML = '<em>Нет ходов. Нажми на любую клетку!</em>';
         } else {
-            movesDiv.innerHTML = moves.map((move, idx) => 
-                `<div>${idx+1}. (${move[0]}, ${move[1]})</div>`
-            ).join('');
+            movesDiv.innerHTML = moves.map((move, idx) => {
+                const actionIcon = move.action === 'reveal' ? '🔍' : '🚩';
+                return `<div>${idx+1}. ${actionIcon} (${move.x}, ${move.y}) - ${move.action === 'reveal' ? 'открыть' : 'флаг'}</div>`;
+            }).join('');
         }
         const movesJson = { moves: moves };
         document.getElementById('movesJsonPreview').value = JSON.stringify(movesJson, null, 2);
@@ -273,7 +363,7 @@
         a.download = 'moves.json';
         a.click();
         URL.revokeObjectURL(url);
-        alert('✅ moves.json сохранён! Теперь нажми "Обработать ходы через Python"');
+        alert('✅ moves.json сохранён!');
     }
 
     async function processMoves() {
@@ -283,7 +373,7 @@
         if (result.error) {
             alert(result.error);
         } else {
-            alert('Ходы обработаны! Смотри result.json');
+            alert('Ходы обработаны! Результат в консоли и файле result.json');
             console.log('Результат:', result);
             let msg = result.results.join('\n');
             if (result.won) msg += '\n\n🏆 ПОБЕДА!';
@@ -299,7 +389,6 @@
         }
     }
 
-    // Загружаем игру при старте
     loadGame();
 </script>
 </body>
